@@ -10,6 +10,20 @@ enum LabelMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// What the panel's numbers are shown in. The session ring's % stays cost-based either way,
+/// since plan limits track compute cost rather than raw token counts.
+enum DisplayUnit: String, CaseIterable, Identifiable {
+    case cost = "Cost"
+    case tokens = "Tokens"
+    var id: String { rawValue }
+
+    func value(_ t: Totals) -> Double { self == .cost ? t.cost : Double(t.tokens) }
+    func format(_ v: Double) -> String { self == .cost ? Format.cost(v) : Format.tokens(Int(v)) }
+    func format(_ t: Totals) -> String { format(value(t)) }
+    /// The other unit, for secondary lines.
+    func secondary(_ t: Totals) -> String { self == .cost ? "\(Format.tokens(t.tokens)) tok" : Format.cost(t.cost) }
+}
+
 /// UserDefaults keys shared between the store and @AppStorage in the views.
 enum Prefs {
     static let sessionLimit = "sessionLimit"      // Double, 0 = auto

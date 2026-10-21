@@ -89,10 +89,11 @@ struct UsageSnapshot {
     var daily: [DayUsage] = []
     var models: [NamedUsage] = []
     var projects: [NamedUsage] = []
-    /// Cost by [weekday][hour] over 30 days; weekday 0 is Monday.
-    var heatmap = Array(repeating: Array(repeating: 0.0, count: 24), count: 7)
+    /// Usage by [weekday][hour] over 30 days; weekday 0 is Monday.
+    var heatmap = Array(repeating: Array(repeating: Totals(), count: 24), count: 7)
     var activeBlock: SessionBlock?
     var peakBlockCost = 0.0
+    var peakBlockTokens = 0
     var limitHitCost: Double?
     var updated = Date()
 
@@ -244,7 +245,7 @@ actor LogScanner {
                 models[Pricing.displayName(for: e.model), default: Totals()].add(e)
                 projects[ProjectKey(name: e.project, temporary: e.temporary), default: Totals()].add(e)
                 let c = cal.dateComponents([.weekday, .hour], from: t)
-                snap.heatmap[(c.weekday! + 5) % 7][c.hour!] += e.cost
+                snap.heatmap[(c.weekday! + 5) % 7][c.hour!].add(e)
             }
             if t >= chartStart { days[cal.startOfDay(for: t), default: Totals()].add(e) }
 
@@ -264,7 +265,10 @@ actor LogScanner {
             snap.activeBlock = b
             completed = completed.dropLast()
         }
-        snap.peakBlockCost = completed.map(\.totals.cost).max() ?? 0
+        if let peak = completed.max(by: { $0.totals.cost < $1.totals.cost }) {
+            snap.peakBlockCost = peak.totals.cost
+            snap.peakBlockTokens = peak.totals.tokens
+        }
         snap.limitHitCost = blocks.filter(\.hitLimit).map(\.totals.cost).max()
 
         snap.daily = (0..<14).map { i in

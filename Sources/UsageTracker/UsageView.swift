@@ -6,6 +6,7 @@ struct UsageView: View {
     @AppStorage("labelMode") private var labelMode: LabelMode = .todayCost
     @AppStorage("breakdown") private var breakdown = "Projects"
     @AppStorage("hideTemporary") private var hideTemporary = true
+    @AppStorage("displayUnit") private var unit: DisplayUnit = .cost
     @AppStorage(Prefs.sessionLimit) private var customLimit = 0.0
     @AppStorage(Prefs.notifications) private var notifications = false
     @AppStorage(Prefs.dailyAlert) private var dailyAlert = 0.0
@@ -67,14 +68,22 @@ struct UsageView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("5-hour session").font(.caption).foregroundStyle(.secondary)
                 if let b = block {
-                    Text(Format.cost(b.totals.cost)).font(.system(size: 26, weight: .semibold, design: .rounded)).monospacedDigit()
-                    if let limit { Text(limitCaption(limit)).font(.caption).foregroundStyle(.secondary) }
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(unit.format(b.totals)).font(.system(size: 26, weight: .semibold, design: .rounded)).monospacedDigit()
+                        if unit == .tokens { Text("tokens").font(.caption).foregroundStyle(.secondary) }
+                    }
+                    // Captions stay on one line so the card's height never changes.
+                    if let limit {
+                        Text(limitCaption(limit)).font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1).minimumScaleFactor(0.75)
+                    }
                     Label("Resets in \(Format.duration(b.end.timeIntervalSinceNow))", systemImage: "clock")
                         .font(.caption.weight(.medium))
                     let hours = Date().timeIntervalSince(b.start) / 3600
                     if hours > 0.15 {
-                        Text("\(Format.cost(b.totals.cost / hours))/hr · on pace for \(Format.cost(b.totals.cost / hours * 5))")
-                            .font(.caption2).foregroundStyle(.secondary)
+                        let perHour = unit.value(b.totals) / hours
+                        Text("\(unit.format(perHour))/hr · on pace for \(unit.format(perHour * 5))")
+                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.75)
                     }
                 } else {
                     Text("Idle").font(.system(size: 26, weight: .semibold, design: .rounded))
@@ -90,8 +99,11 @@ struct UsageView: View {
     private func limitCaption(_ limit: SessionLimit) -> String {
         switch limit.source {
         case .custom: return "of your \(Format.cost(limit.cost)) limit"
-        case .calibrated: return "of ~\(Format.cost(limit.cost)) limit (from a past limit hit)"
-        case .peak: return "vs. your busiest session, \(Format.cost(limit.cost))"
+        case .calibrated: return "of ~\(Format.cost(limit.cost)) limit (calibrated)"
+        case .peak:
+            return unit == .tokens
+                ? "vs. busiest session, \(Format.tokens(s.peakBlockTokens))"
+                : "vs. your busiest session, \(Format.cost(limit.cost))"
         }
     }
 
@@ -99,18 +111,18 @@ struct UsageView: View {
 
     private var periodRow: some View {
         HStack(spacing: 0) {
-            PeriodStat(title: "Today", totals: s.today)
+            PeriodStat(title: "Today", totals: s.today, unit: unit)
             Divider().frame(height: 30)
-            PeriodStat(title: "7 days", totals: s.week)
+            PeriodStat(title: "7 days", totals: s.week, unit: unit)
             Divider().frame(height: 30)
-            PeriodStat(title: "30 days", totals: s.month)
+            PeriodStat(title: "30 days", totals: s.month, unit: unit)
         }
     }
 
     private var dailyChart: some View {
         Titled(title: "Last 14 days") {
             Chart(s.daily) { day in
-                BarMark(x: .value("Day", day.date, unit: .day), y: .value("Cost", day.totals.cost))
+                BarMark(x: .value("Day", day.date, unit: .day), y: .value(unit.rawValue, unit.value(day.totals)))
                     .foregroundStyle(Calendar.current.isDateInToday(day.date) ? Color(nsColor: ClaudeIcon.terracotta) : Color.secondary.opacity(0.35))
                     .cornerRadius(3.6)
             }
@@ -122,7 +134,9 @@ struct UsageView: View {
             .chartYAxis {
                 AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { value in
                     AxisGridLine()
-                    AxisValueLabel { if let v = value.as(Double.self) { Text("$\(Int(v))") } }
+                    AxisValueLabel {
+                        if let v = value.as(Double.self) { Text(unit == .cost ? "$\(Int(v))" : Format.tokens(Int(v))) }
+                    }
                 }
             }
             .frame(height: 84)
@@ -134,7 +148,7 @@ struct UsageView: View {
     private var breakdownList: some View {
         let showingProjects = breakdown == "Projects"
         let items = showingProjects && hideTemporary ? s.projects.filter { !$0.isTemporary } : (showingProjects ? s.projects : s.models)
-        let hidden = s.projects.filter(\.isTemporary).reduce(0) { $0 + $1.totals.cost }
+        let hidden = s.projects.filter(\.isTemporary).reduce(0) { $0 + unit.value($1.totals) }
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Last 30 days").font(.caption.weight(.medium)).foregroundStyle(.secondary)
@@ -159,14 +173,15 @@ struct UsageView: View {
             .overlay {
                 if items.isEmpty { Text("No usage yet").font(.caption).foregroundStyle(.secondary) }
             }
-            Text("+ \(Format.cost(hidden)) in temporary folders (hidden)")
+            Text("+ \(unit.format(hidden))\(unit == .tokens ? " tokens" : "") in temporary folders (hidden)")
                 .font(.caption2).foregroundStyle(.tertiary)
                 .opacity(showingProjects && hideTemporary && hidden > 0 ? 1 : 0)
         }
     }
 
     private func breakdownRow(_ item: NamedUsage) -> some View {
-        let share = s.month.cost > 0 ? item.totals.cost / s.month.cost : 0
+        let total = unit.value(s.month)
+        let share = total > 0 ? unit.value(item.totals) / total : 0
         return VStack(spacing: 4) {
             HStack {
                 Text(item.name).font(.caption).lineLimit(1).truncationMode(.middle)
@@ -176,7 +191,7 @@ struct UsageView: View {
                         .background(Capsule().fill(.quinary))
                 }
                 Spacer()
-                Text(Format.cost(item.totals.cost)).font(.caption).monospacedDigit()
+                Text(unit.format(item.totals)).font(.caption).monospacedDigit()
                 Text("\(Int((share * 100).rounded()))%").font(.caption2).monospacedDigit()
                     .foregroundStyle(.secondary).frame(width: 30, alignment: .trailing)
             }
@@ -194,7 +209,7 @@ struct UsageView: View {
     // MARK: - Heatmap
 
     private var heatmap: some View {
-        let peak = s.heatmap.flatMap { $0 }.max() ?? 0
+        let peak = s.heatmap.flatMap { $0 }.map(unit.value).max() ?? 0
         let days = ["M", "T", "W", "T", "F", "S", "S"]
         return Titled(title: "Active hours · 30 days") {
             VStack(alignment: .leading, spacing: 2) {
@@ -202,11 +217,11 @@ struct UsageView: View {
                     HStack(spacing: 2) {
                         Text(days[d]).font(.system(size: 8)).foregroundStyle(.secondary).frame(width: 10)
                         ForEach(0..<24, id: \.self) { h in
-                            let v = peak > 0 ? s.heatmap[d][h] / peak : 0
+                            let v = peak > 0 ? unit.value(s.heatmap[d][h]) / peak : 0
                             RoundedRectangle(cornerRadius: 2.4)
                                 .fill(v > 0 ? Color(nsColor: ClaudeIcon.terracotta).opacity(0.2 + 0.8 * v) : Color.secondary.opacity(0.1))
                                 .frame(width: 11, height: 11)
-                                .help("\(days[d]) \(h):00 · \(Format.cost(s.heatmap[d][h]))")
+                                .help("\(days[d]) \(h):00 · \(unit.format(s.heatmap[d][h]))")
                         }
                     }
                 }
@@ -229,6 +244,12 @@ struct UsageView: View {
                     ForEach(LabelMode.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .labelsHidden().fixedSize()
+            }
+            SettingRow("Show amounts as") {
+                Picker("", selection: $unit) {
+                    ForEach(DisplayUnit.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().controlSize(.small).fixedSize()
             }
             SettingRow("Hide temporary folders") {
                 Toggle("", isOn: $hideTemporary).toggleStyle(.switch).controlSize(.mini).labelsHidden()
@@ -304,12 +325,13 @@ private struct SessionRing: View {
 private struct PeriodStat: View {
     let title: String
     let totals: Totals
+    let unit: DisplayUnit
 
     var body: some View {
         VStack(spacing: 2) {
             Text(title).font(.caption2).foregroundStyle(.secondary)
-            Text(Format.cost(totals.cost)).font(.system(.callout, design: .rounded).weight(.semibold)).monospacedDigit()
-            Text("\(Format.tokens(totals.tokens)) tok").font(.system(size: 9)).foregroundStyle(.tertiary)
+            Text(unit.format(totals)).font(.system(.callout, design: .rounded).weight(.semibold)).monospacedDigit()
+            Text(unit.secondary(totals)).font(.system(size: 9)).foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity)
         .help("In \(Format.tokens(totals.input)) · Out \(Format.tokens(totals.output)) · Cache write \(Format.tokens(totals.cacheWrite)) · Cache read \(Format.tokens(totals.cacheRead)) · \(totals.requests) requests")
