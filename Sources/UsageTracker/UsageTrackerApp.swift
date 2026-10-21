@@ -37,8 +37,14 @@ final class UsageStore: ObservableObject {
     @Published private(set) var isLoading = false
     @Published var showSettings = false
     @Published private(set) var launchAtLogin = SMAppService.mainApp.status == .enabled
+    let mascot = MascotAnimator()
     private let scanner = LogScanner()
     private var hasLoaded = false
+
+    /// Claude Code counts as working if it logged a response in the last 90 seconds.
+    private var isWorking: Bool {
+        snapshot.activeBlock.map { Date().timeIntervalSince($0.lastActivity) < 90 } ?? false
+    }
 
     /// A static store for rendering the panel without a menu bar (see `--render`).
     init(preview: UsageSnapshot) {
@@ -49,7 +55,8 @@ final class UsageStore: ObservableObject {
         Task {
             while !Task.isCancelled {
                 await refresh()
-                try? await Task.sleep(for: .seconds(30))
+                // Check more often while Claude is working so the mascot reacts quickly.
+                try? await Task.sleep(for: .seconds(isWorking ? 10 : 30))
             }
         }
     }
@@ -62,6 +69,7 @@ final class UsageStore: ObservableObject {
         if hasLoaded { sendAlerts(previous: previous, current: snapshot) }
         hasLoaded = true
         isLoading = false
+        mascot.setWorking(isWorking)
     }
 
     func setLaunchAtLogin(_ on: Bool) {
@@ -119,7 +127,6 @@ final class UsageStore: ObservableObject {
 @main
 struct UsageTrackerApp: App {
     @StateObject private var store = UsageStore()
-    @AppStorage("labelMode") private var labelMode: LabelMode = .todayCost
 
     init() {
         // Debug flags: `--dump` prints the current numbers, `--render <file.png>` saves the panel.
@@ -163,10 +170,21 @@ struct UsageTrackerApp: App {
         MenuBarExtra {
             UsageView(store: store)
         } label: {
-            Image(nsImage: ClaudeIcon.image())
-            if let text = labelText { Text(text) }
+            MenuBarLabel(store: store, mascot: store.mascot)
         }
         .menuBarExtraStyle(.window)
+    }
+}
+
+/// Its own view so mascot frame ticks only re-render the label, not the panel.
+private struct MenuBarLabel: View {
+    @ObservedObject var store: UsageStore
+    @ObservedObject var mascot: MascotAnimator
+    @AppStorage("labelMode") private var labelMode: LabelMode = .todayCost
+
+    var body: some View {
+        Image(nsImage: ClaudeIcon.image(frame: mascot.frame))
+        if let text = labelText { Text(text) }
     }
 
     private var labelText: String? {

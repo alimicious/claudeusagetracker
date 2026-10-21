@@ -7,6 +7,7 @@ struct UsageView: View {
     @AppStorage("breakdown") private var breakdown = "Projects"
     @AppStorage("hideTemporary") private var hideTemporary = true
     @AppStorage("displayUnit") private var unit: DisplayUnit = .cost
+    @AppStorage(MascotAnimator.modeKey) private var mascotMode: MascotAnimator.Mode = .whileWorking
     @AppStorage(Prefs.sessionLimit) private var customLimit = 0.0
     @AppStorage(Prefs.notifications) private var notifications = false
     @AppStorage(Prefs.dailyAlert) private var dailyAlert = 0.0
@@ -244,6 +245,13 @@ struct UsageView: View {
                     ForEach(LabelMode.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .labelsHidden().fixedSize()
+            }
+            SettingRow("Animate mascot") {
+                Picker("", selection: $mascotMode) {
+                    ForEach(MascotAnimator.Mode.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .labelsHidden().fixedSize()
+                .onChange(of: mascotMode) { store.mascot.update() }
             }
             SettingRow("Show amounts as") {
                 Picker("", selection: $unit) {
