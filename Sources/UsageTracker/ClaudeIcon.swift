@@ -4,11 +4,18 @@ import AppKit
 enum ClaudeIcon {
     static let terracotta = NSColor(srgbRed: 0.851, green: 0.467, blue: 0.341, alpha: 1)  // #D97757
 
-    enum Frame: Hashable {
-        case idle, blink, walkA, walkB
+    enum Frame: Hashable, CaseIterable {
+        case idle, blink, typeRest, typeLeft, typeRight
     }
 
-    /// Each "#" is one pixel; the gaps in rows 2–3 are the eyes, rows 7–8 the legs.
+    /// Pixel colors: "#" mascot, "L" laptop lid, "K" laptop base; "." is transparent.
+    private static let palette: [Character: NSColor] = [
+        "#": terracotta,
+        "L": NSColor(white: 0.72, alpha: 1),
+        "K": NSColor(white: 0.48, alpha: 1),
+    ]
+
+    /// The gaps in rows 2–3 are the eyes, rows 7–8 the legs.
     private static let idle = [
         "..########..",
         "..########..",
@@ -21,12 +28,27 @@ enum ClaudeIcon {
         "..#.#..#.#..",
     ]
 
+    /// Sitting behind a mini laptop (the back of its lid faces us), both hands on the base.
+    private static let typing = [
+        "..########..",
+        "..########..",
+        "..#.####.#..",
+        "..#.####.#..",
+        "..########..",
+        "..########..",
+        "...LLLLLL...",
+        "...LLLLLL...",
+        ".##LLLLLL##.",
+        "KKKKKKKKKKKK",
+    ]
+
     private static let sprites: [Frame: [String]] = [
         .idle: idle,
         .blink: replacing(idle, [2: "..########..", 3: "..########.."]),
-        // Walking: alternate pairs of legs lift while the arms bob up and down.
-        .walkA: replacing(idle, [8: "..#....#...."]),
-        .walkB: replacing(idle, [3: "###.####.###", 4: "..########..", 8: "....#....#.."]),
+        .typeRest: typing,
+        // One hand lifts off the keys while the other presses down.
+        .typeLeft: replacing(typing, [7: ".##LLLLLL...", 8: "...LLLLLL##."]),
+        .typeRight: replacing(typing, [7: "...LLLLLL##.", 8: ".##LLLLLL..."]),
     ]
 
     private static func replacing(_ rows: [String], _ changes: [Int: String]) -> [String] {
@@ -44,15 +66,17 @@ enum ClaudeIcon {
         let px = size / cols
         let image = NSImage(size: NSSize(width: size, height: size), flipped: true) { _ in
             let originY = (size - rows * px) / 2
-            // One path for all pixels so anti-aliasing doesn't leave seams between them.
-            let path = NSBezierPath()
-            for (r, line) in sprite.enumerated() {
-                for (c, ch) in line.enumerated() where ch == "#" {
-                    path.appendRect(NSRect(x: CGFloat(c) * px, y: originY + CGFloat(r) * px, width: px, height: px))
+            // One path per color so anti-aliasing doesn't leave seams between pixels.
+            for (char, color) in palette {
+                let path = NSBezierPath()
+                for (r, line) in sprite.enumerated() {
+                    for (c, ch) in line.enumerated() where ch == char {
+                        path.appendRect(NSRect(x: CGFloat(c) * px, y: originY + CGFloat(r) * px, width: px, height: px))
+                    }
                 }
+                color.setFill()
+                path.fill()
             }
-            terracotta.setFill()
-            path.fill()
             return true
         }
         image.isTemplate = false

@@ -1,7 +1,7 @@
 import AppKit
 
-/// Drives the menu bar mascot: it walks while Claude Code is working and blinks now and then
-/// when idle. Kept separate from UsageStore so frame ticks don't re-render the whole panel.
+/// Drives the menu bar mascot: it types on a mini laptop while Claude Code is working and blinks
+/// now and then when idle. Kept separate from UsageStore so frame ticks don't re-render the panel.
 @MainActor
 final class MascotAnimator: ObservableObject {
     enum Mode: String, CaseIterable, Identifiable {
@@ -13,9 +13,15 @@ final class MascotAnimator: ObservableObject {
 
     static let modeKey = "mascotAnimation"
 
+    /// Bursts of alternating key presses with a short pause, so the typing doesn't look mechanical.
+    private static let typingLoop: [ClaudeIcon.Frame] = [
+        .typeLeft, .typeRight, .typeLeft, .typeRight, .typeLeft, .typeRight, .typeRest, .typeRest,
+    ]
+
     @Published private(set) var frame: ClaudeIcon.Frame = .idle
     private var working = false
-    private var walkTimer: Timer?
+    private var typeTimer: Timer?
+    private var step = 0
 
     init() {
         Task { await blinkLoop() }
@@ -34,34 +40,37 @@ final class MascotAnimator: ObservableObject {
         update()
     }
 
-    /// Re-evaluates whether to walk; call after the mode setting changes.
+    /// Re-evaluates whether to type; call after the mode setting changes.
     func update() {
-        let shouldWalk = motionAllowed && (mode == .always || working)
-        if shouldWalk, walkTimer == nil {
-            let timer = Timer(timeInterval: 0.3, repeats: true) { [weak self] _ in
-                Task { @MainActor in self?.step() }
+        let shouldType = motionAllowed && (mode == .always || working)
+        if shouldType, typeTimer == nil {
+            step = 0
+            frame = .typeRest
+            let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.tick() }
             }
             RunLoop.main.add(timer, forMode: .common)  // keep ticking while the panel is open
-            walkTimer = timer
-        } else if !shouldWalk, let timer = walkTimer {
+            typeTimer = timer
+        } else if !shouldType, let timer = typeTimer {
             timer.invalidate()
-            walkTimer = nil
+            typeTimer = nil
             frame = .idle
         }
     }
 
-    private func step() {
-        guard walkTimer != nil else { return }  // a tick queued just before the timer was stopped
-        frame = frame == .walkA ? .walkB : .walkA
+    private func tick() {
+        guard typeTimer != nil else { return }  // a tick queued just before the timer was stopped
+        frame = Self.typingLoop[step % Self.typingLoop.count]
+        step += 1
     }
 
     private func blinkLoop() async {
         while true {
             try? await Task.sleep(for: .seconds(Double.random(in: 4...8)))
-            guard walkTimer == nil, motionAllowed else { continue }
+            guard typeTimer == nil, motionAllowed else { continue }
             frame = .blink
             try? await Task.sleep(for: .milliseconds(150))
-            if walkTimer == nil { frame = .idle }
+            if typeTimer == nil { frame = .idle }
         }
     }
 }
