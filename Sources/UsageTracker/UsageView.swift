@@ -9,6 +9,7 @@ struct UsageView: View {
     @AppStorage("displayUnit") private var unit: DisplayUnit = .cost
     @AppStorage(MascotAnimator.modeKey) private var mascotMode: MascotAnimator.Mode = .whileWorking
     @AppStorage(Prefs.sessionLimit) private var customLimit = 0.0
+    @AppStorage(Prefs.limitMatchedAt) private var limitMatchedAt = 0.0
     @AppStorage(Prefs.notifications) private var notifications = false
     @AppStorage(Prefs.dailyAlert) private var dailyAlert = 0.0
 
@@ -50,6 +51,7 @@ struct UsageView: View {
             // Settings open in a popover so the panel never changes height; MenuBarExtra
             // windows don't resize cleanly when their content grows or shrinks.
             IconButton(systemName: store.showSettings ? "gearshape.fill" : "gearshape", help: "Settings") {
+                if !store.showSettings { store.prepareMatchForm() }
                 store.showSettings.toggle()
             }
             .popover(isPresented: $store.showSettings, arrowEdge: .bottom) { settings }
@@ -99,6 +101,9 @@ struct UsageView: View {
 
     private func limitCaption(_ limit: SessionLimit) -> String {
         switch limit.source {
+        case .custom where limitMatchedAt > 0:
+            let matched = Date(timeIntervalSince1970: limitMatchedAt).formatted(date: .omitted, time: .shortened)
+            return "of ~\(Format.cost(limit.cost)), matched to Claude at \(matched)"
         case .custom: return "of your \(Format.cost(limit.cost)) limit"
         case .calibrated: return "of ~\(Format.cost(limit.cost)) limit (calibrated)"
         case .peak:
@@ -263,9 +268,12 @@ struct UsageView: View {
                 Toggle("", isOn: $hideTemporary).toggleStyle(.switch).controlSize(.mini).labelsHidden()
             }
             SettingRow("Session limit", hint: "0 = auto") {
-                TextField("Auto", value: $customLimit, format: .currency(code: "USD"))
+                // Typing a limit by hand replaces one matched from Claude's usage page.
+                TextField("Auto", value: Binding(get: { customLimit }, set: { customLimit = $0; limitMatchedAt = 0 }),
+                          format: .currency(code: "USD"))
                     .frame(width: 80).multilineTextAlignment(.trailing)
             }
+            matchForm
             SettingRow("Notifications") {
                 Toggle("", isOn: Binding(get: { notifications }, set: { store.setNotifications($0) }))
                     .toggleStyle(.switch).controlSize(.mini).labelsHidden()
@@ -284,6 +292,32 @@ struct UsageView: View {
         .font(.caption)
         .padding(14)
         .frame(width: 290)
+    }
+
+    /// Copy the session figures from Claude's usage page to line the estimate up with them.
+    private var matchForm: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Divider()
+            Text("Match Claude's usage page").font(.caption.weight(.semibold))
+            Text("Copy the current session from Claude → Settings → Usage.")
+                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            SettingRow("% used", hint: "optional") {
+                TextField("0", value: $store.matchPercent, format: .number)
+                    .frame(width: 50).multilineTextAlignment(.trailing)
+            }
+            SettingRow("Resets at") {
+                DatePicker("", selection: $store.matchReset, displayedComponents: .hourAndMinute)
+                    .labelsHidden().datePickerStyle(.field)
+            }
+            HStack {
+                if let message = store.matchMessage {
+                    Text(message).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Button("Match") { Task { await store.matchClaude() } }.controlSize(.small)
+            }
+            Divider()
+        }
     }
 
     private var footer: some View {
@@ -321,12 +355,15 @@ private struct SessionRing: View {
             VStack(spacing: 0) {
                 Text(active ? "\(Int((used * 100).rounded()))%" : "–")
                     .font(.system(size: 20, weight: .bold, design: .rounded)).monospacedDigit()
-                Text("used").font(.system(size: 9)).foregroundStyle(.secondary)
+                Text("est.").font(.system(size: 9)).foregroundStyle(.secondary)
             }
         }
         .frame(width: 92, height: 92)
         .animation(.easeOut(duration: 0.6), value: used)
-        .help("Outer ring: usage vs. limit · inner ring: time elapsed in the window")
+        .help("""
+            An estimate from Claude Code on this Mac. Claude's own usage page also counts chat in the \
+            Claude apps, so it can read higher. Outer ring: usage vs. limit. Inner ring: time elapsed.
+            """)
     }
 }
 

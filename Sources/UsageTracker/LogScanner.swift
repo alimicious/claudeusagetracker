@@ -132,9 +132,11 @@ actor LogScanner {
     private let usageMarker = Data("\"usage\"".utf8)
     private let syntheticMarker = Data("<synthetic>".utf8)
 
-    func snapshot(now: Date = Date()) -> UsageSnapshot {
+    /// `knownReset` pins one session window to end at that time (e.g. the reset time shown on
+    /// Claude's usage page); other windows are inferred from activity.
+    func snapshot(now: Date = Date(), knownReset: Date? = nil) -> UsageSnapshot {
         scan()
-        return aggregate(now: now)
+        return aggregate(now: now, knownReset: knownReset)
     }
 
     // MARK: - Scanning
@@ -223,7 +225,7 @@ actor LogScanner {
 
     // MARK: - Aggregation
 
-    private func aggregate(now: Date) -> UsageSnapshot {
+    private func aggregate(now: Date, knownReset: Date?) -> UsageSnapshot {
         let cal = Calendar.current
         let today = cal.startOfDay(for: now)
         let weekStart = cal.date(byAdding: .day, value: -6, to: today)!
@@ -235,6 +237,7 @@ actor LogScanner {
         var models: [String: Totals] = [:]
         var projects: [ProjectKey: Totals] = [:]
         var blocks: [SessionBlock] = []
+        let pinnedStart = knownReset?.addingTimeInterval(-SessionBlock.length)
 
         for e in entries.sorted(by: { $0.timestamp < $1.timestamp }) {
             let t = e.timestamp
@@ -249,10 +252,16 @@ actor LogScanner {
             }
             if t >= chartStart { days[cal.startOfDay(for: t), default: Totals()].add(e) }
 
-            if let last = blocks.last, t < last.end {
+            if let pinned = pinnedStart, t >= pinned, t < pinned.addingTimeInterval(SessionBlock.length),
+               blocks.last?.start != pinned {
+                // Entering the known window: it starts exactly here, cutting short any guessed one.
+                blocks.append(SessionBlock(start: pinned, lastActivity: t))
+            } else if let last = blocks.last, t < last.end {
                 blocks[blocks.count - 1].lastActivity = t
             } else {
-                blocks.append(SessionBlock(start: cal.dateInterval(of: .hour, for: t)!.start, lastActivity: t))
+                // A new window opens on the hour of the first request, but never overlaps the previous one.
+                let hour = cal.dateInterval(of: .hour, for: t)!.start
+                blocks.append(SessionBlock(start: max(hour, blocks.last?.end ?? hour), lastActivity: t))
             }
             blocks[blocks.count - 1].totals.add(e)
         }

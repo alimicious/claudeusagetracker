@@ -29,6 +29,8 @@ enum Prefs {
     static let sessionLimit = "sessionLimit"      // Double, 0 = auto
     static let notifications = "notifications"    // Bool
     static let dailyAlert = "dailyAlert"          // Double, 0 = off
+    static let knownReset = "knownReset"          // Double (epoch), a reset time copied from Claude's usage page
+    static let limitMatchedAt = "limitMatchedAt"  // Double (epoch), when sessionLimit was matched to Claude's %
 }
 
 @MainActor
@@ -36,6 +38,10 @@ final class UsageStore: ObservableObject {
     @Published private(set) var snapshot = UsageSnapshot()
     @Published private(set) var isLoading = false
     @Published var showSettings = false
+    /// Draft values for the "Match Claude's usage page" form.
+    @Published var matchPercent = 0.0
+    @Published var matchReset = Date()
+    @Published private(set) var matchMessage: String?
     @Published private(set) var launchAtLogin = SMAppService.mainApp.status == .enabled
     let mascot = MascotAnimator()
     private let scanner = LogScanner()
@@ -65,11 +71,59 @@ final class UsageStore: ObservableObject {
         guard !isLoading else { return }
         isLoading = true
         let previous = snapshot
-        snapshot = await scanner.snapshot()
+        snapshot = await scanner.snapshot(knownReset: knownReset)
         if hasLoaded { sendAlerts(previous: previous, current: snapshot) }
         hasLoaded = true
         isLoading = false
         mascot.setWorking(isWorking)
+    }
+
+    private var knownReset: Date? {
+        let t = UserDefaults.standard.double(forKey: Prefs.knownReset)
+        return t > 0 ? Date(timeIntervalSince1970: t) : nil
+    }
+
+    // MARK: - Matching Claude's usage page
+
+    /// Fills the form with the current estimate, so only what differs needs changing.
+    func prepareMatchForm() {
+        matchReset = snapshot.activeBlock?.end ?? Date().addingTimeInterval(SessionBlock.length)
+        matchPercent = 0
+        matchMessage = nil
+    }
+
+    /// Pins the session window to Claude's reset time and, given Claude's "% used", works out
+    /// the session limit that this Mac's Claude Code usage corresponds to.
+    func matchClaude() async {
+        let reset = Self.nextOccurrence(ofTimeIn: matchReset)
+        guard reset.timeIntervalSinceNow <= SessionBlock.length else {
+            matchMessage = "Claude's reset time should be within the next 5 hours."
+            return
+        }
+        let defaults = UserDefaults.standard
+        defaults.set(reset.timeIntervalSince1970, forKey: Prefs.knownReset)
+        snapshot = await scanner.snapshot(knownReset: reset)
+
+        guard matchPercent > 0 else {
+            matchMessage = "Reset time matched."
+            return
+        }
+        guard matchPercent <= 100, let block = snapshot.activeBlock, block.totals.cost > 0 else {
+            matchMessage = "Reset time matched. No Claude Code usage in this window yet, so the % can't be matched."
+            return
+        }
+        let limit = block.totals.cost / (matchPercent / 100)
+        defaults.set(limit, forKey: Prefs.sessionLimit)
+        defaults.set(Date().timeIntervalSince1970, forKey: Prefs.limitMatchedAt)
+        matchMessage = "Matched: \(Format.cost(block.totals.cost)) here = \(Int(matchPercent))%, so your limit is about \(Format.cost(limit))."
+        objectWillChange.send()
+    }
+
+    /// Claude shows only a time of day; take its next occurrence from now.
+    static func nextOccurrence(ofTimeIn date: Date, after now: Date = Date()) -> Date {
+        let cal = Calendar.current
+        let time = cal.dateComponents([.hour, .minute], from: date)
+        return cal.nextDate(after: now, matching: time, matchingPolicy: .nextTime) ?? date
     }
 
     func setLaunchAtLogin(_ on: Bool) {
