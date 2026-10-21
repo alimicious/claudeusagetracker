@@ -145,38 +145,49 @@ struct UsageView: View {
                 }
                 .pickerStyle(.segmented).labelsHidden().controlSize(.small).fixedSize()
             }
-            if items.isEmpty {
-                Text("No usage yet").font(.caption).foregroundStyle(.secondary)
-            }
-            ForEach(items.prefix(5)) { item in
-                let share = s.month.cost > 0 ? item.totals.cost / s.month.cost : 0
-                VStack(spacing: 4) {
-                    HStack {
-                        Text(item.name).font(.caption).lineLimit(1).truncationMode(.middle)
-                        if item.isTemporary {
-                            Text("temp").font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary)
-                                .padding(.horizontal, 4).padding(.vertical, 1)
-                                .background(Capsule().fill(.quinary))
-                        }
-                        Spacer()
-                        Text(Format.cost(item.totals.cost)).font(.caption).monospacedDigit()
-                        Text("\(Int((share * 100).rounded()))%").font(.caption2).monospacedDigit()
-                            .foregroundStyle(.secondary).frame(width: 30, alignment: .trailing)
+            // Always lay out 5 rows and the footnote, so switching tabs never changes the
+            // panel's height (MenuBarExtra windows don't resize cleanly).
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(0..<5, id: \.self) { i in
+                    if i < items.count {
+                        breakdownRow(items[i])
+                    } else {
+                        breakdownRow(NamedUsage(name: " ", totals: Totals())).hidden()
                     }
-                    GeometryReader { geo in
-                        Capsule().fill(.quinary)
-                            .overlay(alignment: .leading) {
-                                Capsule().fill(Color(nsColor: ClaudeIcon.terracotta).opacity(0.8))
-                                    .frame(width: max(3, geo.size.width * share))
-                            }
-                    }
-                    .frame(height: 4)
                 }
             }
-            if showingProjects && hideTemporary && hidden > 0 {
-                Text("+ \(Format.cost(hidden)) in temporary folders (hidden)")
-                    .font(.caption2).foregroundStyle(.tertiary)
+            .overlay {
+                if items.isEmpty { Text("No usage yet").font(.caption).foregroundStyle(.secondary) }
             }
+            Text("+ \(Format.cost(hidden)) in temporary folders (hidden)")
+                .font(.caption2).foregroundStyle(.tertiary)
+                .opacity(showingProjects && hideTemporary && hidden > 0 ? 1 : 0)
+        }
+    }
+
+    private func breakdownRow(_ item: NamedUsage) -> some View {
+        let share = s.month.cost > 0 ? item.totals.cost / s.month.cost : 0
+        return VStack(spacing: 4) {
+            HStack {
+                Text(item.name).font(.caption).lineLimit(1).truncationMode(.middle)
+                if item.isTemporary {
+                    Text("temp").font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary)
+                        .padding(.horizontal, 4).padding(.vertical, 1)
+                        .background(Capsule().fill(.quinary))
+                }
+                Spacer()
+                Text(Format.cost(item.totals.cost)).font(.caption).monospacedDigit()
+                Text("\(Int((share * 100).rounded()))%").font(.caption2).monospacedDigit()
+                    .foregroundStyle(.secondary).frame(width: 30, alignment: .trailing)
+            }
+            GeometryReader { geo in
+                Capsule().fill(.quinary)
+                    .overlay(alignment: .leading) {
+                        Capsule().fill(Color(nsColor: ClaudeIcon.terracotta).opacity(0.8))
+                            .frame(width: max(3, geo.size.width * share))
+                    }
+            }
+            .frame(height: 4)
         }
     }
 
