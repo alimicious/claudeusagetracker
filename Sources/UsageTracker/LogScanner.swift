@@ -259,9 +259,9 @@ actor LogScanner {
             } else if let last = blocks.last, t < last.end {
                 blocks[blocks.count - 1].lastActivity = t
             } else {
-                // A new window opens on the hour of the first request, but never overlaps the previous one.
-                let hour = cal.dateInterval(of: .hour, for: t)!.start
-                blocks.append(SessionBlock(start: max(hour, blocks.last?.end ?? hour), lastActivity: t))
+                // A new window opens at the exact time of the first request after the previous one ended,
+                // as Claude's own windows do (they start mid-hour, e.g. 20:41).
+                blocks.append(SessionBlock(start: t, lastActivity: t))
             }
             blocks[blocks.count - 1].totals.add(e)
         }

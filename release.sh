@@ -19,7 +19,8 @@ fi
 
 ./build.sh --universal
 rm -f "$ZIP"
-ditto -c -k --keepParent build/UsageTracker.app "$ZIP"
+# Leave out macOS file metadata (extended attributes) so the zip carries nothing about this Mac.
+ditto -c -k --norsrc --noextattr --keepParent build/UsageTracker.app "$ZIP"
 
 git push
 gh release create "$TAG" "$ZIP" --target "$(git rev-parse HEAD)" --title "UsageTracker $VERSION" --notes-file - <<NOTES
