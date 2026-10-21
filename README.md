@@ -17,7 +17,7 @@ Everything is read locally from Claude Code's transcripts in `~/.claude/projects
 
 Requires macOS 14 or later and [Claude Code](https://claude.com/claude-code). Runs on Apple Silicon and Intel Macs.
 
-1. Download the latest **UsageTracker zip** from the [Releases page](https://github.com/alimicious/usagetracker/releases/latest) and double-click it to unzip.
+1. Download the latest **UsageTracker zip** from the [Releases page](https://github.com/alimicious/claudeusagetracker/releases/latest) and double-click it to unzip.
 2. Drag **UsageTracker** into your **Applications** folder and open it.
 3. macOS will say it can't verify the app, because it isn't notarized by Apple. Click **Done**, then open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. You only need to do this once.
 
