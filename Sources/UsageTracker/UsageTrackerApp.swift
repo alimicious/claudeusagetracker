@@ -130,7 +130,17 @@ struct UsageTrackerApp: App {
 
     init() {
         // Debug flags: `--dump` prints the current numbers, `--render <file.png>` saves the panel.
+        // Build flag: `--iconset <dir>` writes the app icon PNGs (see build.sh).
         let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--iconset"), i + 1 < args.count {
+            do {
+                try AppIcon.writeIconset(to: URL(fileURLWithPath: args[i + 1]))
+                exit(0)
+            } catch {
+                print("Couldn't write iconset: \(error)")
+                exit(1)
+            }
+        }
         if let i = args.firstIndex(of: "--render"), i + 1 < args.count {
             Self.renderPanel(to: args[i + 1])
             exit(0)

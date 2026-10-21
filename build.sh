@@ -23,8 +23,14 @@ BIN=$(swift build -c release $ARCH_FLAGS --show-bin-path)
 
 APP=build/UsageTracker.app
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/UsageTracker" "$APP/Contents/MacOS/UsageTracker"
+
+# The app draws its own icon from the mascot sprite; iconutil packs the sizes into an .icns.
+ICONSET=build/AppIcon.iconset
+rm -rf "$ICONSET"
+"$APP/Contents/MacOS/UsageTracker" --iconset "$ICONSET"
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -35,6 +41,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleDisplayName</key><string>AI Usage Tracker</string>
     <key>CFBundleIdentifier</key><string>com.alimicious.usagetracker</string>
     <key>CFBundleExecutable</key><string>UsageTracker</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
