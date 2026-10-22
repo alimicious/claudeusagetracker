@@ -37,17 +37,21 @@ struct UsageView: View {
             Image(nsImage: ClaudeIcon.image(size: 24))
             VStack(alignment: .leading, spacing: 1) {
                 Text("Claude Code").font(.headline)
-                Text("Updated \(s.updated.formatted(date: .omitted, time: .shortened)) · est. at API rates")
-                    .font(.caption2).foregroundStyle(.secondary)
+                Text("Updated \(s.updated.formatted(date: .omitted, time: .shortened)) · \(unit == .water ? "theoretical water" : "est. at API rates")")
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    .help(unit == .water ? Water.explanation : "Costs are estimated at Anthropic API list prices.")
             }
             Spacer()
             // Swap in a spinner rather than animating the icon: a repeating animation
             // inside a MenuBarExtra window can leave the button stuck mid-transition.
-            if store.isLoading {
-                ProgressView().controlSize(.small).frame(width: 22, height: 22)
-            } else {
-                IconButton(systemName: "arrow.clockwise", help: "Refresh") { Task { await store.refresh() } }
+            Group {
+                if store.isLoading {
+                    ProgressView().controlSize(.small)
+                } else {
+                    IconButton(systemName: "arrow.clockwise", help: "Refresh") { Task { await store.refresh() } }
+                }
             }
+            .frame(width: 32, height: 32)
             // Settings open in a popover so the panel never changes height; MenuBarExtra
             // windows don't resize cleanly when their content grows or shrinks.
             IconButton(systemName: store.showSettings ? "gearshape.fill" : "gearshape", help: "Settings") {
@@ -96,7 +100,7 @@ struct UsageView: View {
             Spacer(minLength: 0)
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 16.8).fill(.quinary))
+        .glassCard(cornerRadius: 16.8)
     }
 
     private func limitCaption(_ limit: SessionLimit) -> String {
@@ -116,11 +120,9 @@ struct UsageView: View {
     // MARK: - Periods & chart
 
     private var periodRow: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 8) {
             PeriodStat(title: "Today", totals: s.today, unit: unit)
-            Divider().frame(height: 30)
             PeriodStat(title: "7 days", totals: s.week, unit: unit)
-            Divider().frame(height: 30)
             PeriodStat(title: "30 days", totals: s.month, unit: unit)
         }
     }
@@ -141,7 +143,7 @@ struct UsageView: View {
                 AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { value in
                     AxisGridLine()
                     AxisValueLabel {
-                        if let v = value.as(Double.self) { Text(unit == .cost ? "$\(Int(v))" : Format.tokens(Int(v))) }
+                        if let v = value.as(Double.self) { Text(unit == .cost ? "$\(Int(v))" : v == 0 ? "0" : unit.format(v)) }
                     }
                 }
             }
@@ -314,7 +316,8 @@ struct UsageView: View {
                     Text(message).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
-                Button("Match") { Task { await store.matchClaude() } }.controlSize(.small)
+                Button("Match") { Task { await store.matchClaude() } }
+                    .controlSize(.small).glassButton(prominent: true).tint(Color(nsColor: ClaudeIcon.terracotta))
             }
             Divider()
         }
@@ -325,7 +328,7 @@ struct UsageView: View {
             Text("Reads ~/.claude/projects").font(.caption2).foregroundStyle(.tertiary)
             Spacer()
             Button("Quit") { NSApplication.shared.terminate(nil) }
-                .keyboardShortcut("q").buttonStyle(.borderless).font(.caption)
+                .keyboardShortcut("q").controlSize(.small).glassButton().font(.caption)
         }
     }
 }
@@ -379,6 +382,8 @@ private struct PeriodStat: View {
             Text(unit.secondary(totals)).font(.system(size: 9)).foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity)
+        .padding(.vertical, 9)
+        .glassCard(cornerRadius: 14)
         .help("In \(Format.tokens(totals.input)) · Out \(Format.tokens(totals.output)) · Cache write \(Format.tokens(totals.cacheWrite)) · Cache read \(Format.tokens(totals.cacheRead)) · \(totals.requests) requests")
     }
 }
@@ -425,7 +430,51 @@ private struct IconButton: View {
         Button(action: action) {
             Image(systemName: systemName).font(.system(size: 12, weight: .medium)).frame(width: 22, height: 22)
         }
-        .buttonStyle(.borderless)
+        .glassButton()
+        .buttonBorderShape(.circle)
         .help(help)
+    }
+}
+
+// MARK: - Liquid Glass
+
+private struct RendersOffscreenKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// True when `--render` draws the panel offscreen, where Liquid Glass can't be captured.
+    var rendersOffscreen: Bool {
+        get { self[RendersOffscreenKey.self] }
+        set { self[RendersOffscreenKey.self] = newValue }
+    }
+}
+
+private struct GlassCard: ViewModifier {
+    let cornerRadius: CGFloat
+    @Environment(\.rendersOffscreen) private var offscreen
+
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *), !offscreen {
+            content.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+        } else {
+            content.background(RoundedRectangle(cornerRadius: cornerRadius).fill(.quinary))
+        }
+    }
+}
+
+extension View {
+    /// A Liquid Glass card on macOS 26 and later; a soft fill on older systems.
+    func glassCard(cornerRadius: CGFloat) -> some View {
+        modifier(GlassCard(cornerRadius: cornerRadius))
+    }
+
+    /// Liquid Glass buttons on macOS 26 and later; standard buttons on older systems.
+    @ViewBuilder func glassButton(prominent: Bool = false) -> some View {
+        if #available(macOS 26, *) {
+            if prominent { buttonStyle(.glassProminent) } else { buttonStyle(.glass) }
+        } else {
+            if prominent { buttonStyle(.borderedProminent) } else { buttonStyle(.borderless) }
+        }
     }
 }

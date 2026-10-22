@@ -18,6 +18,14 @@ if gh release view "$TAG" >/dev/null 2>&1; then
 fi
 
 ./build.sh --universal
+
+# Refuse to publish anything that mentions this Mac: home folder path or account name.
+if grep -rlaF -e "$HOME" -e "/Users/$USER" build/UsageTracker.app >/dev/null \
+    || nm -ap build/UsageTracker.app/Contents/MacOS/UsageTracker 2>/dev/null | grep -qF "$USER"; then
+    echo "The app contains this Mac's home folder or username; not publishing." >&2
+    exit 1
+fi
+
 rm -f "$ZIP"
 # Leave out macOS file metadata (extended attributes) so the zip carries nothing about this Mac.
 ditto -c -k --norsrc --noextattr --keepParent build/UsageTracker.app "$ZIP"

@@ -5,6 +5,7 @@ import UserNotifications
 enum LabelMode: String, CaseIterable, Identifiable {
     case todayCost = "Today's cost"
     case todayTokens = "Today's tokens"
+    case todayWater = "Today's water"
     case session = "5-hour session"
     case iconOnly = "Icon only"
     var id: String { rawValue }
@@ -15,10 +16,25 @@ enum LabelMode: String, CaseIterable, Identifiable {
 enum DisplayUnit: String, CaseIterable, Identifiable {
     case cost = "Cost"
     case tokens = "Tokens"
+    case water = "Water"
     var id: String { rawValue }
 
-    func value(_ t: Totals) -> Double { self == .cost ? t.cost : Double(t.tokens) }
-    func format(_ v: Double) -> String { self == .cost ? Format.cost(v) : Format.tokens(Int(v)) }
+    func value(_ t: Totals) -> Double {
+        switch self {
+        case .cost: return t.cost
+        case .tokens: return Double(t.tokens)
+        case .water: return Water.liters(t)
+        }
+    }
+
+    func format(_ v: Double) -> String {
+        switch self {
+        case .cost: return Format.cost(v)
+        case .tokens: return Format.tokens(Int(v))
+        case .water: return Water.format(v)
+        }
+    }
+
     func format(_ t: Totals) -> String { format(value(t)) }
     /// The other unit, for secondary lines.
     func secondary(_ t: Totals) -> String { self == .cost ? "\(Format.tokens(t.tokens)) tok" : Format.cost(t.cost) }
@@ -222,6 +238,7 @@ struct UsageTrackerApp: App {
         Task.detached { snapshot = await LogScanner().snapshot(); done.signal() }
         done.wait()
         let renderer = ImageRenderer(content: UsageView(store: UsageStore(preview: snapshot))
+            .environment(\.rendersOffscreen, true)
             .background(Color(nsColor: .windowBackgroundColor)))
         renderer.scale = 2
         if let tiff = renderer.nsImage?.tiffRepresentation,
@@ -256,6 +273,7 @@ private struct MenuBarLabel: View {
         switch labelMode {
         case .todayCost: return Format.cost(s.today.cost)
         case .todayTokens: return Format.tokens(s.today.tokens)
+        case .todayWater: return Water.format(Water.liters(s.today))
         case .session:
             guard let b = s.activeBlock else { return "idle" }
             return "\(Format.cost(b.totals.cost)) · \(Format.duration(b.end.timeIntervalSinceNow))"
