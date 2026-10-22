@@ -25,6 +25,8 @@ APP=build/UsageTracker.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/UsageTracker" "$APP/Contents/MacOS/UsageTracker"
+# Drop debug symbols: they record the build machine's absolute source paths (home folder included).
+strip -S -x "$APP/Contents/MacOS/UsageTracker"
 
 # The app draws its own icon from the mascot sprite; iconutil packs the sizes into an .icns.
 ICONSET=build/AppIcon.iconset
